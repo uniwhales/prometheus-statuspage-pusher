@@ -12,7 +12,7 @@ Usage of ./prometheus-statuspage-pusher:
   -si string
     	Statuspage page ID
   -st string
-    	Statuspage Oauth token
+    	Statuspage Oauth token (defaults to value of STATUSPAGE_TOKEN environment variable)
   -su string
     	URL of Statuspage API (default "https://api.statuspage.io")
 ```
