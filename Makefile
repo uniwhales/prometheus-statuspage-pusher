@@ -1,3 +1,10 @@
+build:
+	go build -o prometheus-statuspage-pusher main.go
+
+deps:
+	go mod verify
+	go mod tidy -v
+
 tag:
 	git fetch --tags
 	git tag $(TAG)
