@@ -2,28 +2,32 @@ before:
   hooks:
     - go mod download
 builds:
-- main: main.go
-  binary: prometheus-statuspage-pusher
-  goos:
-    - linux
-  goarch:
-    - amd64
-  env:
-  - CGO_ENABLED=0
+  - main: main.go
+    binary: prometheus-statuspage-pusher
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=0
 archives:
-- replacements:
-    darwin: Darwin
-    linux: Linux
-    windows: Windows
-    386: i386
-    amd64: x86_64
+  - replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: i386
+      amd64: x86_64
+dockers:
+  - image_templates:
+      - "whyeasy/{{ .ProjectName }}:latest"
+      - "whyeasy/{{ .ProjectName }}:{{ .Version }}"
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
 snapshot:
   name_template: "{{ .Tag }}"
 changelog:
   sort: asc
   filters:
     exclude:
-    - '^docs:'
-    - '^test:'
+      - "^docs:"
+      - "^test:"
