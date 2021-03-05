@@ -24,10 +24,3 @@ jobs:
           args: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: "whyeasy/prometheus-statuspage-pusher:${{ github.ref }}"
-          format: "table"
-          exit-code: "1"
-          severity: "CRITICAL,HIGH"
