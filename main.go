@@ -15,8 +15,7 @@ import (
 	"time"
 
 	"github.com/ghodss/yaml"
-	"github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/log/level"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/prometheus/client_golang/api"
 	prometheus "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -33,12 +32,11 @@ var (
 	queryConfigFile = flag.String("c", "queries.yaml", "Query config file")
 	metricInterval  = flag.Duration("i", 30*time.Second, "Metric push interval")
 
-	logger     = log.With(log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr)), "caller", log.DefaultCaller)
 	httpClient = &http.Client{}
 )
 
 func fatal(fields ...interface{}) {
-	level.Error(logger).Log(fields...)
+	log.Error(fields...)
 	os.Exit(1)
 }
 func main() {
@@ -63,23 +61,23 @@ func main() {
 			ts := time.Now()
 			resp, warnings, err := api.Query(context.Background(), query, ts)
 			if err != nil {
-				level.Error(logger).Log("msg", "Couldn't query Prometheus", "error", err.Error())
+				log.Error("msg", "Couldn't query Prometheus", "error", err.Error())
 				continue
 			}
 			if len(warnings) > 0 {
 				for _, warning := range warnings {
-					level.Warn(logger).Log("msg", "Prometheus query warning", "warning", warning)
+					log.Error("msg", "Prometheus query warning", "warning", warning)
 				}
 			}
 			vec := resp.(model.Vector)
 			if l := vec.Len(); l != 1 {
-				level.Error(logger).Log("msg", "Expected query to return single value", "samples", l)
+				log.Error("msg", "Expected query to return single value", "samples", l)
 				continue
 			}
 
-			level.Info(logger).Log("metricID", metricID, "resp", vec[0].Value)
+			log.Info("metricID", metricID, "resp", vec[0].Value)
 			if err := sendStatusPage(ts, metricID, float64(vec[0].Value)); err != nil {
-				level.Error(logger).Log("msg", "Couldn't send metric to Statuspage", "error", err.Error())
+				log.Error("msg", "Couldn't send metric to Statuspage", "error", err.Error())
 				continue
 			}
 		}
