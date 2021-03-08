@@ -44,15 +44,15 @@ func main() {
 	qConfig := queryConfig{}
 	qcd, err := ioutil.ReadFile(*queryConfigFile)
 	if err != nil {
-		fatal("msg", "Couldn't read config file", "error", err.Error())
+		fatal("Couldn't read config file ", err.Error())
 	}
 	if err := yaml.Unmarshal(qcd, &qConfig); err != nil {
-		fatal("msg", "Couldn't parse config file", "error", err.Error())
+		fatal("Couldn't parse config file ", err.Error())
 	}
 
 	client, err := api.NewClient(api.Config{Address: *prometheusURL})
 	if err != nil {
-		fatal("msg", "Couldn't create Prometheus client", "error", err.Error())
+		fatal("Couldn't create Prometheus client ", err.Error())
 	}
 	api := prometheus.NewAPI(client)
 
@@ -61,23 +61,23 @@ func main() {
 			ts := time.Now()
 			resp, warnings, err := api.Query(context.Background(), query, ts)
 			if err != nil {
-				log.Error("msg", "Couldn't query Prometheus", "error", err.Error())
+				log.Error("Couldn't query Prometheus ", err.Error())
 				continue
 			}
 			if len(warnings) > 0 {
 				for _, warning := range warnings {
-					log.Error("msg", "Prometheus query warning", "warning", warning)
+					log.Warn("Prometheus query warning ", warning)
 				}
 			}
 			vec := resp.(model.Vector)
 			if l := vec.Len(); l != 1 {
-				log.Error("msg", "Expected query to return single value", "samples", l)
+				log.Error("Expected query to return single value: ", "samples ", l)
 				continue
 			}
 
-			log.Info("metricID", metricID, "resp", vec[0].Value)
+			log.Info("metricID: ", metricID, "resp: ", vec[0].Value)
 			if err := sendStatusPage(ts, metricID, float64(vec[0].Value)); err != nil {
-				log.Error("msg", "Couldn't send metric to Statuspage", "error", err.Error())
+				log.Error("Couldn't send metric to Statuspage ", err.Error())
 				continue
 			}
 		}
