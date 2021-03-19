@@ -19,6 +19,7 @@ import (
 
 	"github.com/prometheus/client_golang/api"
 	prometheus "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/model"
 )
 
@@ -31,6 +32,7 @@ var (
 	statusPageID    = flag.String("si", "", "Statuspage page ID")
 	queryConfigFile = flag.String("c", "queries.yaml", "Query config file")
 	metricInterval  = flag.Duration("i", 30*time.Second, "Metric push interval")
+	prometheusPort  = flag.Int("prometheusPort", 9095, "Port to serve Prometheus metrics from")
 
 	httpClient = &http.Client{}
 )
@@ -55,6 +57,8 @@ func main() {
 		fatal("Couldn't create Prometheus client ", err.Error())
 	}
 	api := prometheus.NewAPI(client)
+
+	go metricsServer(*prometheusPort)
 
 	for {
 		for metricID, query := range qConfig {
@@ -110,4 +114,9 @@ func sendStatusPage(ts time.Time, metricID string, value float64) error {
 		return errors.New("API Error: " + string(respStr))
 	}
 	return nil
+}
+
+func metricsServer(port int) {
+	http.Handle("/metrics", promhttp.Handler())
+	http.ListenAndServe(":"+strconv.Itoa(port), nil)
 }
