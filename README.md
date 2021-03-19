@@ -1,6 +1,7 @@
 # prometheus-statuspage-pusher
 
 # Usage
+
 ```
 Usage of ./prometheus-statuspage-pusher:
   -c string
@@ -15,15 +16,20 @@ Usage of ./prometheus-statuspage-pusher:
     	Statuspage Oauth token (defaults to value of STATUSPAGE_TOKEN environment variable)
   -su string
     	URL of Statuspage API (default "https://api.statuspage.io")
+  -prometheusPort int
+      Port to serve Prometheus metrics from (default 9095)
 ```
 
 ## Config:
+
 Syntax:
+
 ```
 metricID: prometheus-expression
 ```
 
 The prometheus-expression needs to return a single element vector, like:
+
 ```
 abcdef: avg(up{job="web"})
 ```
