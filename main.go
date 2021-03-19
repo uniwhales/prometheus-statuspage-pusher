@@ -118,5 +118,8 @@ func sendStatusPage(ts time.Time, metricID string, value float64) error {
 
 func metricsServer(port int) {
 	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(":"+strconv.Itoa(port), nil)
+	err := http.ListenAndServe(":"+strconv.Itoa(port), nil)
+	if err != nil {
+		log.Error("Error serving Metrics server")
+	}
 }
