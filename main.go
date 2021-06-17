@@ -2,90 +2,103 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/ghodss/yaml"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/client_golang/api"
 	prometheus "github.com/prometheus/client_golang/api/prometheus/v1"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/model"
 )
 
 type queryConfig map[string]string
 
 var (
-	prometheusURL   = flag.String("pu", "http://localhost:9090", "URL of Prometheus server")
-	statusPageURL   = flag.String("su", "https://api.statuspage.io", "URL of Statuspage API")
-	statusPageToken = flag.String("st", os.Getenv("STATUSPAGE_TOKEN"), "Statuspage Oauth token")
-	statusPageID    = flag.String("si", "", "Statuspage page ID")
-	queryConfigFile = flag.String("c", "queries.yaml", "Query config file")
-	metricInterval  = flag.Duration("i", 30*time.Second, "Metric push interval")
-	prometheusPort  = flag.Int("prometheusPort", 9095, "Port to serve Prometheus metrics from")
+	prometheusURL    = flag.String("prom", "http://localhost:9090", "URL of Prometheus server")
+	statusPageAPIKey = flag.String("apikey", "", "Statuspage API key")
+	statusPageID     = flag.String("pageid", "", "Statuspage page ID")
+	queryConfigFile  = flag.String("config", "queries.yaml", "Query config file")
+	metricInterval   = flag.Duration("interval", 30*time.Second, "Metric push interval")
 
-	httpClient = &http.Client{}
+	httpClient = &http.Client{
+		Timeout: 5 * time.Second,
+	}
 )
 
-func fatal(fields ...interface{}) {
-	log.Error(fields...)
-	os.Exit(1)
-}
 func main() {
 	flag.Parse()
 	qConfig := queryConfig{}
 	qcd, err := ioutil.ReadFile(*queryConfigFile)
 	if err != nil {
-		fatal("Couldn't read config file ", err.Error())
+		log.Fatalf("Couldn't read config file: %w", err)
 	}
 	if err := yaml.Unmarshal(qcd, &qConfig); err != nil {
-		fatal("Couldn't parse config file ", err.Error())
+		log.Fatalf("Couldn't parse config file: %w", err)
 	}
 
+	queryPrometheus(qConfig)
+	ticker := time.NewTicker(*metricInterval)
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				queryPrometheus(qConfig)
+			}
+		}
+	}()
+}
+
+func queryPrometheus(qConfig queryConfig) {
 	client, err := api.NewClient(api.Config{Address: *prometheusURL})
 	if err != nil {
-		fatal("Couldn't create Prometheus client ", err.Error())
+		log.Fatalf("Couldn't create Prometheus client: %w", err)
 	}
 	api := prometheus.NewAPI(client)
 
-	go metricsServer(*prometheusPort)
+	for metricID, query := range qConfig {
+		ctxlog := log.WithField("metric_id", metricID)
 
-	for {
-		for metricID, query := range qConfig {
-			ts := time.Now()
-			resp, warnings, err := api.Query(context.Background(), query, ts)
-			if err != nil {
-				log.Error("Couldn't query Prometheus ", err.Error())
-				continue
-			}
-			if len(warnings) > 0 {
-				for _, warning := range warnings {
-					log.Warn("Prometheus query warning ", warning)
-				}
-			}
-			vec := resp.(model.Vector)
-			if l := vec.Len(); l != 1 {
-				log.Error("Expected query to return single value: ", "samples ", l)
-				continue
-			}
+		ts := time.Now()
+		resp, warnings, err := api.Query(context.Background(), query, ts)
+		if err != nil {
+			ctxlog.Errorf("Couldn't query Prometheus: %w", err)
+			continue
+		}
 
-			log.Info("metricID: ", metricID, "resp: ", vec[0].Value)
-			if err := sendStatusPage(ts, metricID, float64(vec[0].Value)); err != nil {
-				log.Error("Couldn't send metric to Statuspage ", err.Error())
-				continue
+		if len(warnings) > 0 {
+			for _, warning := range warnings {
+				ctxlog.Warnf("Prometheus query warning: %s", warning)
 			}
 		}
-		time.Sleep(*metricInterval)
+
+		vec := resp.(model.Vector)
+		if l := vec.Len(); l != 1 {
+			ctxlog.Errorf("Expected query to return single value, actual %d samples", l)
+			continue
+		}
+
+		value := vec[0].Value
+		if "NaN" == value.String() {
+			ctxlog.Error("Query returns NaN")
+			continue
+		}
+
+		log.Info("Query result: %v", value)
+
+		if err := sendStatusPage(ts, metricID, float64(value)); err != nil {
+			ctxlog.Error("Couldn't send metric to Statuspage: %w", err)
+			continue
+		}
 	}
 }
 
@@ -94,12 +107,12 @@ func sendStatusPage(ts time.Time, metricID string, value float64) error {
 		"data[timestamp]": []string{strconv.FormatInt(ts.Unix(), 10)},
 		"data[value]":     []string{strconv.FormatFloat(value, 'f', -1, 64)},
 	}
-	url := *statusPageURL + path.Join("/v1", "pages", *statusPageID, "metrics", metricID, "data.json")
+	url := "https://api.statuspage.io" + path.Join("/v1", "pages", *statusPageID, "metrics", metricID, "data.json")
 	req, err := http.NewRequest("POST", url, strings.NewReader(values.Encode()))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "OAuth "+*statusPageToken)
+	req.Header.Set("Authorization", "OAuth "+*statusPageAPIKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -111,15 +124,7 @@ func sendStatusPage(ts time.Time, metricID string, value float64) error {
 		if err != nil {
 			return fmt.Errorf("Empty API Error")
 		}
-		return errors.New("API Error: " + string(respStr))
+		return fmt.Errorf("API Error: %s", string(respStr))
 	}
 	return nil
-}
-
-func metricsServer(port int) {
-	http.Handle("/metrics", promhttp.Handler())
-	err := http.ListenAndServe(":"+strconv.Itoa(port), nil)
-	if err != nil {
-		log.Error("Error serving Metrics server")
-	}
 }
