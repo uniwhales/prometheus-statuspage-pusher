@@ -1,26 +1,21 @@
 package main
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"path"
-	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 
-	"github.com/prometheus/client_golang/api"
-	prometheus "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 )
-
-type queryConfig map[string]string
 
 var (
 	prometheusURL    = flag.String("prom", "http://localhost:9090", "URL of Prometheus server")
@@ -28,98 +23,91 @@ var (
 	statusPageID     = flag.String("pageid", "", "Statuspage page ID")
 	queryConfigFile  = flag.String("config", "queries.yaml", "Query config file")
 	metricInterval   = flag.Duration("interval", 30*time.Second, "Metric push interval")
+	backfillDuration = flag.String("backfill", "", "Backfill the data points in, for example, 5d")
 
 	httpClient = &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 30 * time.Second,
 	}
+
+	queryConfig map[string]string
 )
 
 func main() {
 	flag.Parse()
-	qConfig := queryConfig{}
+
 	qcd, err := ioutil.ReadFile(*queryConfigFile)
 	if err != nil {
 		log.Fatalf("Couldn't read config file: %s", err)
 	}
-	if err := yaml.Unmarshal(qcd, &qConfig); err != nil {
+	if err := yaml.Unmarshal(qcd, &queryConfig); err != nil {
 		log.Fatalf("Couldn't parse config file: %s", err)
 	}
 
-	queryPrometheus(qConfig)
-	ticker := time.NewTicker(*metricInterval)
+	if *backfillDuration != "" {
+		md, err := model.ParseDuration(*backfillDuration)
+		if err != nil {
+			log.Fatalf("Incorrect duration format: %s", *backfillDuration)
+		}
+		d := time.Duration(md)
+		queryAndPush(&d)
+	} else {
+		queryAndPush(nil)
+	}
 
+	ticker := time.NewTicker(*metricInterval)
 	for {
 		select {
 		case <-ticker.C:
-			go queryPrometheus(qConfig)
+			go queryAndPush(nil)
 		}
 	}
 }
 
-func queryPrometheus(qConfig queryConfig) {
-	client, err := api.NewClient(api.Config{Address: *prometheusURL})
-	if err != nil {
-		log.Fatalf("Couldn't create Prometheus client: %s", err)
-	}
-	api := prometheus.NewAPI(client)
+func queryAndPush(backfill *time.Duration) {
 	log.Infof("Started to query and pushing metrics")
 
-	for metricID, query := range qConfig {
-		ctxlog := log.WithField("metric_id", metricID)
+	metrics := queryPrometheus(backfill)
+	chunkedMetrics := chunkMetrics(metrics)
 
-		ts := time.Now()
-		resp, warnings, err := api.Query(context.Background(), query, ts)
+	for _, m := range chunkedMetrics {
+		err := pushStatuspage(m)
 		if err != nil {
-			ctxlog.Errorf("Couldn't query Prometheus: %s", err)
-			continue
-		}
-
-		if len(warnings) > 0 {
-			for _, warning := range warnings {
-				ctxlog.Warnf("Prometheus query warning: %s", warning)
-			}
-		}
-
-		vec := resp.(model.Vector)
-		if l := vec.Len(); l != 1 {
-			ctxlog.Errorf("Expected query to return single value, actual %d samples", l)
-			continue
-		}
-
-		value := vec[0].Value
-		if "NaN" == value.String() {
-			ctxlog.Error("Query returns NaN")
-			continue
-		}
-
-		ctxlog.Infof("Query result: %v", value)
-
-		if err := sendStatusPage(ts, metricID, float64(value)); err != nil {
-			ctxlog.Error("Couldn't send metric to Statuspage: %s", err)
-			continue
+			log.Error(err)
 		}
 	}
 
-	log.Infof("Pushed metrics to statuspage.io")
+	log.Infof("Pushed metrics to Statuspage")
 }
 
-func sendStatusPage(ts time.Time, metricID string, value float64) error {
-	values := url.Values{
-		"data[timestamp]": []string{strconv.FormatInt(ts.Unix(), 10)},
-		"data[value]":     []string{strconv.FormatFloat(value, 'f', -1, 64)},
-	}
-	url := "https://api.statuspage.io" + path.Join("/v1", "pages", *statusPageID, "metrics", metricID, "data.json")
-	req, err := http.NewRequest("POST", url, strings.NewReader(values.Encode()))
+func pushStatuspage(metrics statuspageMetrics) error {
+	jsonContents, err := json.Marshal(statuspageMetricsPayload{Data: metrics})
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("Metrics payload pushing to Statuspage: %s", jsonContents)
+
+	metricIDs := make([]string, 0, len(metrics))
+	for id := range metrics {
+		metricIDs = append(metricIDs, id)
+	}
+
+	log.Infof("Pushing metrics: %s", strings.Join(metricIDs, ", "))
+
+	url := fmt.Sprintf("https://api.statuspage.io/v1/pages/%s/metrics/data", url.PathEscape(*statusPageID))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonContents))
+	if err != nil {
+		return err
+	}
+
 	req.Header.Set("Authorization", "OAuth "+*statusPageAPIKey)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respStr, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
@@ -127,5 +115,6 @@ func sendStatusPage(ts time.Time, metricID string, value float64) error {
 		}
 		return fmt.Errorf("HTTP status %d, API error: %s", resp.StatusCode, string(respStr))
 	}
+
 	return nil
 }
