@@ -39,31 +39,30 @@ func main() {
 	qConfig := queryConfig{}
 	qcd, err := ioutil.ReadFile(*queryConfigFile)
 	if err != nil {
-		log.Fatalf("Couldn't read config file: %w", err)
+		log.Fatalf("Couldn't read config file: %s", err)
 	}
 	if err := yaml.Unmarshal(qcd, &qConfig); err != nil {
-		log.Fatalf("Couldn't parse config file: %w", err)
+		log.Fatalf("Couldn't parse config file: %s", err)
 	}
 
 	queryPrometheus(qConfig)
 	ticker := time.NewTicker(*metricInterval)
 
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				queryPrometheus(qConfig)
-			}
+	for {
+		select {
+		case <-ticker.C:
+			go queryPrometheus(qConfig)
 		}
-	}()
+	}
 }
 
 func queryPrometheus(qConfig queryConfig) {
 	client, err := api.NewClient(api.Config{Address: *prometheusURL})
 	if err != nil {
-		log.Fatalf("Couldn't create Prometheus client: %w", err)
+		log.Fatalf("Couldn't create Prometheus client: %s", err)
 	}
 	api := prometheus.NewAPI(client)
+	log.Infof("Started to query and pushing metrics")
 
 	for metricID, query := range qConfig {
 		ctxlog := log.WithField("metric_id", metricID)
@@ -71,7 +70,7 @@ func queryPrometheus(qConfig queryConfig) {
 		ts := time.Now()
 		resp, warnings, err := api.Query(context.Background(), query, ts)
 		if err != nil {
-			ctxlog.Errorf("Couldn't query Prometheus: %w", err)
+			ctxlog.Errorf("Couldn't query Prometheus: %s", err)
 			continue
 		}
 
@@ -93,13 +92,15 @@ func queryPrometheus(qConfig queryConfig) {
 			continue
 		}
 
-		log.Info("Query result: %v", value)
+		ctxlog.Infof("Query result: %v", value)
 
 		if err := sendStatusPage(ts, metricID, float64(value)); err != nil {
-			ctxlog.Error("Couldn't send metric to Statuspage: %w", err)
+			ctxlog.Error("Couldn't send metric to Statuspage: %s", err)
 			continue
 		}
 	}
+
+	log.Infof("Pushed metrics to statuspage.io")
 }
 
 func sendStatusPage(ts time.Time, metricID string, value float64) error {
@@ -122,9 +123,9 @@ func sendStatusPage(ts time.Time, metricID string, value float64) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respStr, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return fmt.Errorf("Empty API Error")
+			return fmt.Errorf("HTTP status %d, Empty API response", resp.StatusCode)
 		}
-		return fmt.Errorf("API Error: %s", string(respStr))
+		return fmt.Errorf("HTTP status %d, API error: %s", resp.StatusCode, string(respStr))
 	}
 	return nil
 }
