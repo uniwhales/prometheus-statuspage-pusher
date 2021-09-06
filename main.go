@@ -76,7 +76,7 @@ func queryAndPush(backfill *time.Duration) {
 		}
 	}
 
-	log.Infof("Pushed metrics to Statuspage")
+	log.Infof("Finished querying and pushing metrics")
 }
 
 func pushStatuspage(metrics statuspageMetrics) error {
