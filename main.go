@@ -18,12 +18,14 @@ import (
 )
 
 var (
-	prometheusURL    = flag.String("prom", "http://localhost:9090", "URL of Prometheus server")
-	statusPageAPIKey = flag.String("apikey", "", "Statuspage API key")
-	statusPageID     = flag.String("pageid", "", "Statuspage page ID")
-	queryConfigFile  = flag.String("config", "queries.yaml", "Query config file")
-	metricInterval   = flag.Duration("interval", 30*time.Second, "Metric push interval")
-	backfillDuration = flag.String("backfill", "", "Backfill the data points in, for example, 5d")
+	prometheusURL       = flag.String("prom", "http://localhost:9090", "URL of Prometheus server")
+	statusPageAPIKey    = flag.String("apikey", "", "Statuspage API key")
+	statusPageID        = flag.String("pageid", "", "Statuspage page ID")
+	queryConfigFile     = flag.String("config", "queries.yaml", "Query config file")
+	metricInterval      = flag.Duration("interval", 30*time.Second, "Metric push interval")
+	metricValueRounding = flag.Uint("rounding", 6, "Round metric values to specific decimal places")
+	backfillDuration    = flag.String("backfill", "", "Backfill the data points in, for example, 5d")
+	logLevel            = flag.String("log-level", "info", "Log level accepted by Logrus, for example, \"error\", \"warn\", \"info\", \"debug\", ...")
 
 	httpClient = &http.Client{
 		Timeout: 30 * time.Second,
@@ -34,6 +36,11 @@ var (
 
 func main() {
 	flag.Parse()
+	if lvl, err := log.ParseLevel(*logLevel); err != nil {
+		log.Fatal(err)
+	} else {
+		log.SetLevel(lvl)
+	}
 
 	qcd, err := ioutil.ReadFile(*queryConfigFile)
 	if err != nil {
@@ -66,7 +73,7 @@ func main() {
 func queryAndPush(backfill *time.Duration) {
 	log.Infof("Started to query and pushing metrics")
 
-	metrics := queryPrometheus(backfill)
+	metrics := queryPrometheus(backfill, *metricValueRounding)
 	chunkedMetrics := chunkMetrics(metrics)
 
 	for _, m := range chunkedMetrics {

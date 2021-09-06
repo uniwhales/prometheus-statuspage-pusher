@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/prometheus/common/model"
 )
 
-func queryPrometheus(backfill *time.Duration) statuspageMetrics {
+func queryPrometheus(backfill *time.Duration, decimal uint) statuspageMetrics {
 	client, err := api.NewClient(api.Config{Address: *prometheusURL})
 	if err != nil {
 		log.Fatalf("Couldn't create Prometheus client: %s", err)
@@ -34,9 +35,9 @@ func queryPrometheus(backfill *time.Duration) statuspageMetrics {
 		)
 
 		if backfill == nil {
-			metricPoints, warnings, err = queryInstant(api, query, ctxlog)
+			metricPoints, warnings, err = queryInstant(api, query, decimal, ctxlog)
 		} else {
-			metricPoints, warnings, err = queryRange(api, query, backfill, ctxlog)
+			metricPoints, warnings, err = queryRange(api, query, decimal, backfill, ctxlog)
 		}
 
 		for _, w := range warnings {
@@ -54,7 +55,7 @@ func queryPrometheus(backfill *time.Duration) statuspageMetrics {
 	return metrics
 }
 
-func queryInstant(api prometheus.API, query string, logger *log.Entry) ([]statuspageMetricPoint, prometheus.Warnings, error) {
+func queryInstant(api prometheus.API, query string, decimal uint, logger *log.Entry) ([]statuspageMetricPoint, prometheus.Warnings, error) {
 	now := time.Now()
 	response, warnings, err := api.Query(context.Background(), query, now)
 
@@ -81,12 +82,12 @@ func queryInstant(api prometheus.API, query string, logger *log.Entry) ([]status
 	return []statuspageMetricPoint{
 		{
 			Timestamp: int64(vec[0].Timestamp / 1000),
-			Value:     float64(value),
+			Value:     json.Number(fmt.Sprintf("%.*f", decimal, value)),
 		},
 	}, warnings, nil
 }
 
-func queryRange(api prometheus.API, query string, backfill *time.Duration, logger *log.Entry) ([]statuspageMetricPoint, prometheus.Warnings, error) {
+func queryRange(api prometheus.API, query string, decimal uint, backfill *time.Duration, logger *log.Entry) ([]statuspageMetricPoint, prometheus.Warnings, error) {
 	now := time.Now()
 	start := now.Add(-*backfill)
 	var (
@@ -132,7 +133,7 @@ func queryRange(api prometheus.API, query string, backfill *time.Duration, logge
 			}
 			metricPoints = append(metricPoints, statuspageMetricPoint{
 				Timestamp: int64(v.Timestamp / 1000),
-				Value:     float64(v.Value),
+				Value:     json.Number(fmt.Sprintf("%.*f", decimal, v.Value)),
 			})
 		}
 

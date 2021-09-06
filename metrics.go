@@ -1,8 +1,12 @@
 package main
 
+import (
+	"encoding/json"
+)
+
 type statuspageMetricPoint struct {
-	Timestamp int64   `json:"timestamp"`
-	Value     float64 `json:"value"`
+	Timestamp int64       `json:"timestamp"`
+	Value     json.Number `json:"value"`
 }
 
 type statuspageMetrics map[string][]statuspageMetricPoint
