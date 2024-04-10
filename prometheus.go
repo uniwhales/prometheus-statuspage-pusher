@@ -8,6 +8,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/prometheus/client_golang/api"
 	prometheus "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -15,7 +16,9 @@ import (
 )
 
 func queryPrometheus(backfill *time.Duration, decimal uint) statuspageMetrics {
-	client, err := api.NewClient(api.Config{Address: *prometheusURL})
+	client, err := api.NewClient(api.Config{
+		Address: viper.GetString("prometheus_url"),
+	})
 	if err != nil {
 		log.Fatalf("Couldn't create Prometheus client: %s", err)
 	}
@@ -58,7 +61,6 @@ func queryPrometheus(backfill *time.Duration, decimal uint) statuspageMetrics {
 func queryInstant(api prometheus.API, query string, decimal uint, logger *log.Entry) ([]statuspageMetricPoint, prometheus.Warnings, error) {
 	now := time.Now()
 	response, warnings, err := api.Query(context.Background(), query, now)
-
 	if err != nil {
 		return nil, warnings, fmt.Errorf("Couldn't query Prometheus: %w", err)
 	}
@@ -102,11 +104,11 @@ func queryRange(api prometheus.API, query string, decimal uint, backfill *time.D
 			end = now
 		}
 
-		logger.Infof("Querying metrics from %s to %s with step %s", start.Format(time.RFC3339), end.Format(time.RFC3339), *metricInterval)
+		logger.Infof("Querying metrics from %s to %s with step %s", start.Format(time.RFC3339), end.Format(time.RFC3339), viper.GetDuration("interval"))
 		response, warnings, err := api.QueryRange(context.Background(), query, prometheus.Range{
 			Start: start,
 			End:   end,
-			Step:  *metricInterval,
+			Step:  viper.GetDuration("interval"),
 		})
 		promWarnings = append(promWarnings, warnings...)
 

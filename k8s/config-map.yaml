@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-statuspage-pusher-config-map
+  namespace: monitoring
+data:
+  queries.yaml: |
+    qllqqbl51520: increase(django_http_requests_total_by_transport_total{job="prod-uniwhales"}[1m]))
+    rbbsl58n5qrz: sum(increase(request_counter_total{job="prod-cielo-api-microservice"}[1m]))

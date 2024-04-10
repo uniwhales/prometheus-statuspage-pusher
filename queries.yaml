@@ -1,9 +1,2 @@
-0fly17tyz248: |
-  avg(
-    rate(
-      http_request_duration_microseconds{
-        quantile="0.5",
-        job="kubernetes-nodes"
-      }[5m]
-    )
-  )
+qllqqbl51520: sum(increase(django_http_requests_total_by_transport_total{job="prod-uniwhales"}[1m])))
+rbbsl58n5qrz: sum(increase(request_counter_total{job="prod-cielo-api-microservice"}[1m]))

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: prometheus-statuspage-pusher
+  namespace: monitoring
+spec:
+  containers:
+    - name: pusher
+      image: 609193078125.dkr.ecr.us-east-1.amazonaws.com/prometheus-statuspage-pusher
+      imagePullPolicy: Always
+      env:
+        - name: PROMETHEUS_URL
+          value: "http://52.91.8.170:9090" # Ensure your Prometheus instance is accessible from the cluster
+        - name: STATUSPAGE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: statuspage-secrets
+              key: apiKey
+        - name: STATUSPAGE_PAGE_ID
+          valueFrom:
+            secretKeyRef:
+              name: statuspage-secrets
+              key: pageID
+        - name: CONFIG
+          value: "/config/queries.yaml"
+        - name: INTERVAL
+          value: "1m"
+        - name: ROUNDING
+          value: "6"
+        - name: BACKFILL
+          value: "5d"
+        - name: LOG_LEVEL
+          value: "info"
+      volumeMounts:
+        - name: config-volume
+          mountPath: /config
+  restartPolicy: Always
+  volumes:
+    - name: config-volume
+      configMap:
+        name: prometheus-statuspage-pusher-config-map
